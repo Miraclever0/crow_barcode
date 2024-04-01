@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <zbar.h>
 #include <nlohmann_json/json.hpp>
+#include <regex>
 
 std::string getBarCode(cv::Mat &src_image)
 {
@@ -27,20 +28,57 @@ std::string getBarCode(cv::Mat &src_image)
     return ret.dump();
 }
 
+cv::Mat imageDecodeBinary(const crow::request& req)
+{
+    std::string imgData = req.body;
+    std::vector<char> buf(imgData.c_str(), imgData.c_str() + imgData.size());
+    cv::Mat img = cv::imdecode(buf, cv::IMREAD_UNCHANGED);
+    return img;
+}
+
+cv::Mat imageDecodeForm(const crow::request& req)
+{
+    crow::multipart::message msg(req);
+    auto part = msg.get_part_by_name("file");
+    std::string imgData = part.body;
+    std::vector<char> buf(imgData.c_str(), imgData.c_str() + imgData.size());
+    cv::Mat img = cv::imdecode(buf, cv::IMREAD_UNCHANGED);
+    return img;
+}
+
 int main()
 {
     crow::SimpleApp app;
 
     CROW_ROUTE(app, "/qrcode_recognize").methods("GET"_method, "POST"_method)([](const crow::request& req){
         std::string imgData = req.body;
+        std::string type = req.get_header_value("Content-Type");
+        // if (req.get_header_value("Content-Type"))
         if (imgData.compare("") == 0)
         {
             nlohmann::json empty = nlohmann::json::object();
             empty["message"] = "empty http body";
             return empty.dump();
         }
-        std::vector<char> buf(imgData.c_str(), imgData.c_str() + imgData.size());
-        cv::Mat img = cv::imdecode(buf, cv::IMREAD_UNCHANGED);
+        cv::Mat img;
+        // multipart/form-data
+        // application/x-www-form-urlencoded
+        if (std::regex_search(type, std::regex("form\\-urlencoded")))
+        {
+            img = imageDecodeBinary(req);
+        }
+        else if (std::regex_search(type, std::regex("form\\-data")))
+        {
+            img = imageDecodeForm(req);
+        }
+        else
+        {
+            nlohmann::json empty = nlohmann::json::object();
+            empty["message"] = "upload method not support";
+            return empty.dump();
+        }
+        // std::vector<char> buf(imgData.c_str(), imgData.c_str() + imgData.size());
+        // cv::Mat img = cv::imdecode(buf, cv::IMREAD_UNCHANGED);
         std::string res = getBarCode(img);
         return res;
     });
